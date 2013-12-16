@@ -80,6 +80,16 @@ public class LimitsV2 extends JavaModule {
     private final Map<String, List<Limit>> groupLimits = new HashMap<String, List<Limit>>();
 
     /**
+     * A map of all of the world limits
+     */
+    private final Map<String, List<Limit>> worldLimits = new HashMap<String, List<Limit>>();
+
+    /**
+     * A map of worlds and their corresponding shared limit world
+     */
+    private final Map<String, String> sharedWorlds = new HashMap<String, String>();
+
+    /**
      * A map mapping string representations of materials to their Material counterpart
      */
     private final Map<String, Material> materialCache = new HashMap<String, Material>();
@@ -135,7 +145,32 @@ public class LimitsV2 extends JavaModule {
 
         @Override
         public int getProtectionCount(Player player, Material material) {
-            return LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName());
+            String world = player.getWorld().getName();
+
+            // Get parent world if one exists
+            if (sharedWorlds.containsKey(world)) {
+                world = sharedWorlds.get(world);
+            }
+
+            int count;
+
+            if (worldLimits.containsKey(world)) {
+                // The world has set limits defined, we'll need to return the sum
+                // of all protections in every linked world
+                count = LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName(), world);
+
+                for (Map.Entry<String, String> entry : sharedWorlds.entrySet()) {
+                    if (entry.getValue().equals(world)) {
+                        count += LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName(), entry.getKey());
+                    }
+                }
+            }
+            else {
+                // World has no limits, return count of all of player's protections
+                count = LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName());
+            }
+
+            return count;
         }
 
     }
@@ -154,7 +189,32 @@ public class LimitsV2 extends JavaModule {
 
         @Override
         public int getProtectionCount(Player player, Material material) {
-            return LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName(), material.getId());
+            String world = player.getWorld().getName();
+
+            // Get parent world if one exists
+            if (sharedWorlds.containsKey(world)) {
+                world = sharedWorlds.get(world);
+            }
+
+            int count;
+
+            if (worldLimits.containsKey(world)) {
+                // The world has set limits defined, we'll need to return the sum
+                // of all protections in every linked world
+                count = LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName(), material.getId(), world);
+
+                for (Map.Entry<String, String> entry : sharedWorlds.entrySet()) {
+                    if (entry.getValue().equals(world)) {
+                        count += LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName(), material.getId(), entry.getKey());
+                    }
+                }
+            }
+            else {
+                // World has no limits, return count of all of player's protections
+                count = LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName(), material.getId());
+            }
+
+            return count;
         }
 
         /**
@@ -175,8 +235,34 @@ public class LimitsV2 extends JavaModule {
         @Override
         public int getProtectionCount(Player player, Material material) {
             LWC lwc = LWC.getInstance();
-            return lwc.getPhysicalDatabase().getProtectionCount(player.getName(), Material.SIGN_POST.getId())
-                    + lwc.getPhysicalDatabase().getProtectionCount(player.getName(), Material.WALL_SIGN.getId());
+            String world = player.getWorld().getName();
+
+            // Get parent world if one exists
+            if (sharedWorlds.containsKey(world)) {
+                world = sharedWorlds.get(world);
+            }
+
+            int count;
+
+            if (worldLimits.containsKey(world)) {
+                // The world has set limits defined, we'll need to return the sum
+                // of all protections in every linked world
+                count = lwc.getPhysicalDatabase().getProtectionCount(player.getName(), Material.SIGN_POST.getId(), world);
+                count += lwc.getPhysicalDatabase().getProtectionCount(player.getName(), Material.WALL_SIGN.getId(), world);
+
+                for (Map.Entry<String, String> entry : sharedWorlds.entrySet()) {
+                    if (entry.getValue().equals(world)) {
+                        count += lwc.getPhysicalDatabase().getProtectionCount(player.getName(), Material.SIGN_POST.getId(), entry.getKey());
+                        count += lwc.getPhysicalDatabase().getProtectionCount(player.getName(), Material.WALL_SIGN.getId(), entry.getKey());
+                    }
+                }
+            }
+            else {
+                // World has no limits, return count of all of player's protections
+                count = LWC.getInstance().getPhysicalDatabase().getProtectionCount(player.getName(), material.getId());
+            }
+
+            return count;
         }
 
     }
@@ -447,6 +533,25 @@ public class LimitsV2 extends JavaModule {
             }
         }
 
+        // Look over the world limits
+        String world = player.getWorld().getName();
+
+        // Check if the world shares its limits with a parent world
+        if (sharedWorlds.containsKey(world)) {
+            world = sharedWorlds.get(world);
+        }
+
+        if (worldLimits.containsKey(world)) {
+            for (Limit limit : worldLimits.get(world)) {
+                // try to match one already inside what we found
+                Limit matched = findLimit(limits, limit);
+
+                if (matched == null) {
+                    limits.add(limit);
+                }
+            }
+        }
+
         // Look at the default limits
         for (Limit limit : defaultLimits) {
             // try to match one already inside what we found
@@ -481,7 +586,7 @@ public class LimitsV2 extends JavaModule {
     }
 
     /**
-     * Gets an unmodiable map of the player limits
+     * Gets an unmodifiable map of the player limits
      *
      * @return
      */
@@ -490,7 +595,7 @@ public class LimitsV2 extends JavaModule {
     }
 
     /**
-     * Gets an unmodiable map of the group limits
+     * Gets an unmodifiable map of the group limits
      *
      * @return
      */
@@ -566,11 +671,25 @@ public class LimitsV2 extends JavaModule {
     private void loadLimits() {
         // make sure we're working on a clean slate
         defaultLimits.clear();
+        worldLimits.clear();
+        sharedWorlds.clear();
         playerLimits.clear();
         groupLimits.clear();
 
         // add the default limits
         defaultLimits.addAll(findLimits("defaults"));
+
+        // add all of the world limits
+        try {
+            for (String world : configuration.getKeys("worlds")) {
+                // add the shared world links
+                for (String sharedWorld : configuration.getStringList("worlds." + world + ".shared", null)) {
+                    sharedWorlds.put(sharedWorld, world);
+                }
+
+                worldLimits.put(world.toLowerCase(), findLimits("worlds." + world + ".limits"));
+            }
+        } catch (NullPointerException e) { }
 
         // add all of the player limits
         try {

@@ -55,6 +55,7 @@ public class ConfigUpdater {
             "master",
             "groups",
             "players",
+            "worlds",
             "defaults"
     );
 
