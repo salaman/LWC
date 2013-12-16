@@ -181,6 +181,43 @@ public class PhysDB extends Database {
     }
 
     /**
+     * Get the amount of protections a player has in a specific world
+     *
+     * @param player
+     * @return the amount of protections they have
+     */
+    public int getProtectionCount(String player, String world) {
+        int count = 0;
+
+        try {
+            String sql = "SELECT COUNT(*) as count FROM " + prefix + "protections WHERE owner = ?";
+
+            if (world != null) {
+                sql += " AND world = ?";
+            }
+
+            PreparedStatement statement = prepare(sql);
+            statement.setString(1, player);
+
+            if (world != null) {
+                statement.setString(2, world);
+            }
+
+            ResultSet set = statement.executeQuery();
+
+            if (set.next()) {
+                count = set.getInt("count");
+            }
+
+            set.close();
+        } catch (SQLException e) {
+            printException(e);
+        }
+
+        return count;
+    }
+
+    /**
      * Get the amount of protections a player has
      *
      * @param player
@@ -214,12 +251,32 @@ public class PhysDB extends Database {
      * @return the amount of protections they have of blockId
      */
     public int getProtectionCount(String player, int blockId) {
+        return getProtectionCount(player, blockId, null);
+    }
+
+    /**
+     * Get the amount of chests a player has of a specific block id in a world
+     *
+     * @param player
+     * @return the amount of protections they have of blockId
+     */
+    public int getProtectionCount(String player, int blockId, String world) {
         int count = 0;
 
         try {
-            PreparedStatement statement = prepare("SELECT COUNT(*) AS count FROM " + prefix + "protections WHERE owner = ? AND blockId = ?");
+            String sql = "SELECT COUNT(*) AS count FROM " + prefix + "protections WHERE owner = ? AND blockId = ?";
+
+            if (world != null) {
+                sql += " AND world = ?";
+            }
+
+            PreparedStatement statement = prepare(sql);
             statement.setString(1, player);
             statement.setInt(2, blockId);
+
+            if (world != null) {
+                statement.setString(3, world);
+            }
 
             ResultSet set = statement.executeQuery();
 
